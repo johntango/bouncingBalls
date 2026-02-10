@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bouncing Balls</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --accent: #38bdf8;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at top, #1e293b, #020617 70%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    .app {
+      width: min(92vw, 920px);
+    }
+
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(1.2rem, 3vw, 1.8rem);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+
+    button {
+      background: var(--accent);
+      color: #082f49;
+      border: 0;
+      border-radius: 0.45rem;
+      padding: 0.55rem 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .hint {
+      font-size: 0.95rem;
+      opacity: 0.9;
+    }
+
+    #box {
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      border: 2px solid #94a3b8;
+      border-radius: 0.6rem;
+      background: linear-gradient(180deg, #111827, #0b1220);
+      box-shadow: 0 20px 40px rgb(0 0 0 / 35%);
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>Bouncing Balls Simulation</h1>
+    <div class="controls">
+      <button id="addBall">Add Ball</button>
+      <button id="clearBalls">Clear</button>
+      <span class="hint">Click inside the box to place a ball with random velocity.</span>
+    </div>
+    <canvas id="box" width="900" height="560" aria-label="Bouncing balls box"></canvas>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('box');
+    const ctx = canvas.getContext('2d');
+    const addBallButton = document.getElementById('addBall');
+    const clearButton = document.getElementById('clearBalls');
+
+    const balls = [];
+    const minRadius = 12;
+    const maxRadius = 26;
+    const maxSpeed = 3.2;
+
+    function random(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function randomColor() {
+      const hue = Math.floor(random(0, 360));
+      return `hsl(${hue} 85% 60%)`;
+    }
+
+    function createBall(x = random(maxRadius, canvas.width - maxRadius), y = random(maxRadius, canvas.height - maxRadius)) {
+      const radius = random(minRadius, maxRadius);
+      const angle = random(0, Math.PI * 2);
+      const speed = random(1.2, maxSpeed);
+
+      const candidate = {
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius,
+        color: randomColor(),
+        mass: radius * radius
+      };
+
+      for (const other of balls) {
+        const dx = candidate.x - other.x;
+        const dy = candidate.y - other.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance < candidate.radius + other.radius + 2) {
+          return null;
+        }
+      }
+
+      return candidate;
+    }
+
+    function spawnBallAt(x, y, tries = 20) {
+      for (let i = 0; i < tries; i += 1) {
+        const ball = createBall(x, y);
+        if (ball) {
+          balls.push(ball);
+          return true;
+        }
+        x = random(maxRadius, canvas.width - maxRadius);
+        y = random(maxRadius, canvas.height - maxRadius);
+      }
+      return false;
+    }
+
+    function resolveWallCollision(ball) {
+      if (ball.x - ball.radius <= 0) {
+        ball.x = ball.radius;
+        ball.vx *= -1;
+      } else if (ball.x + ball.radius >= canvas.width) {
+        ball.x = canvas.width - ball.radius;
+        ball.vx *= -1;
+      }
+
+      if (ball.y - ball.radius <= 0) {
+        ball.y = ball.radius;
+        ball.vy *= -1;
+      } else if (ball.y + ball.radius >= canvas.height) {
+        ball.y = canvas.height - ball.radius;
+        ball.vy *= -1;
+      }
+    }
+
+    function resolveBallCollision(a, b) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distance = Math.hypot(dx, dy);
+      const minDistance = a.radius + b.radius;
+
+      if (distance === 0 || distance >= minDistance) {
+        return;
+      }
+
+      const nx = dx / distance;
+      const ny = dy / distance;
+
+      const overlap = minDistance - distance;
+      const totalMass = a.mass + b.mass;
+      a.x -= (overlap * (b.mass / totalMass)) * nx;
+      a.y -= (overlap * (b.mass / totalMass)) * ny;
+      b.x += (overlap * (a.mass / totalMass)) * nx;
+      b.y += (overlap * (a.mass / totalMass)) * ny;
+
+      const dvx = a.vx - b.vx;
+      const dvy = a.vy - b.vy;
+      const velocityAlongNormal = dvx * nx + dvy * ny;
+
+      if (velocityAlongNormal > 0) {
+        return;
+      }
+
+      const restitution = 1;
+      const impulse = (-(1 + restitution) * velocityAlongNormal) / (1 / a.mass + 1 / b.mass);
+      const impulseX = impulse * nx;
+      const impulseY = impulse * ny;
+
+      a.vx += impulseX / a.mass;
+      a.vy += impulseY / a.mass;
+      b.vx -= impulseX / b.mass;
+      b.vy -= impulseY / b.mass;
+    }
+
+    function update() {
+      for (const ball of balls) {
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+        resolveWallCollision(ball);
+      }
+
+      for (let i = 0; i < balls.length; i += 1) {
+        for (let j = i + 1; j < balls.length; j += 1) {
+          resolveBallCollision(balls[i], balls[j]);
+        }
+      }
+    }
+
+    function drawBall(ball) {
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fillStyle = ball.color;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgb(255 255 255 / 0.6)';
+      ctx.stroke();
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const ball of balls) {
+        drawBall(ball);
+      }
+    }
+
+    function animate() {
+      update();
+      render();
+      requestAnimationFrame(animate);
+    }
+
+    addBallButton.addEventListener('click', () => {
+      spawnBallAt();
+    });
+
+    clearButton.addEventListener('click', () => {
+      balls.length = 0;
+    });
+
+    canvas.addEventListener('click', (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (event.clientX - rect.left) * scaleX;
+      const y = (event.clientY - rect.top) * scaleY;
+      spawnBallAt(x, y);
+    });
+
+    for (let i = 0; i < 8; i += 1) {
+      spawnBallAt();
+    }
+
+    animate();
+  </script>
+</body>
+</html>
